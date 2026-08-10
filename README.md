@@ -2,6 +2,8 @@
 
 Análise preliminar de lesões de pele com IA.
 
+> ⚠️ **Este projeto é uma ferramenta de triagem visual e não substitui diagnóstico médico.** Os resultados não devem ser usados como base única para decisões de saúde — consulte um dermatologista.
+
 ## Estrutura
 
 ```
