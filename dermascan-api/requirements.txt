@@ -1,5 +1,12 @@
+# Torch CPU (sem CUDA) via extra-index: o wheel padrão do PyPI é a build
+# CUDA (~2.5GB no build do Docker/Railway); a +cpu é ~200MB e suficiente —
+# a API roda inferência em CPU.
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi==0.139.0
 uvicorn==0.51.0
 python-multipart==0.0.32
 Pillow==12.3.0
 pydantic==2.13.4
+torch==2.13.0+cpu
+torchvision==0.28.0+cpu
+efficientnet-pytorch==0.7.1

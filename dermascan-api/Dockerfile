@@ -18,6 +18,10 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY app/ ./app/
+# Checkpoint treinado (gitignored — não vai pro repositório, mas entra na
+# imagem). Em deploy sem o arquivo local, use MODEL_PATH=<url> (a API
+# baixa sob demanda; ver services/inference.py).
+COPY models/ ./models/
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
