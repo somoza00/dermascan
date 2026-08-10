@@ -82,6 +82,7 @@ export function ImageUploader({ onImageSelect, onRejected, disabled }: ImageUplo
         id="file-input"
         type="file"
         accept="image/jpeg,image/png"
+        capture="environment"
         onChange={handleChange}
         style={{ display: 'none' }}
         disabled={disabled}
