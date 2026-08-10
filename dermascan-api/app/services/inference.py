@@ -170,7 +170,14 @@ class RealInferenceService:
                 return
 
             local_path = self._resolve_local_path()
-            checkpoint = torch.load(local_path, map_location="cpu", weights_only=False)
+            # weights_only=True: o checkpoint só precisa conter tensors +
+            # tipos primitivos (confirmado — nenhuma classe custom), então
+            # não há motivo pra habilitar unpickling irrestrito. Isso importa
+            # de verdade aqui porque `model_path` pode vir de uma URL
+            # (`MODEL_PATH`) — sem essa flag, um checkpoint malicioso
+            # servido por um host comprometido/MITM executaria código
+            # arbitrário no load, não só pesos errados.
+            checkpoint = torch.load(local_path, map_location="cpu", weights_only=True)
 
             # Valida o contrato salvo por export_model() — se faltar alguma
             # chave, o checkpoint é de outra versão do pipeline e o erro é
