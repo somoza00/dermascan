@@ -43,10 +43,16 @@ O treinamento roda no Google Colab:
 ## API
 
 `POST /predict` — envia imagem, recebe classificação:
-- `risk_level`: alto | médio | baixo
+- `risk_level`: high | medium | low
 - `label`: nome da condição
 - `confidence`: confiança (0-1)
 - `recommendation`: recomendação médica
+
+O serviço escolhe sozinho entre modelo real e mock: se
+`dermascan-api/models/dermascan_v1.pt` existir (ou a env `MODEL_PATH`
+apontar pra um arquivo/URL), roda o EfficientNet-B3 treinado; senão, cai
+pro mock com um warning no log. Detalhes em
+`dermascan-api/app/services/inference.py`.
 
 ## Stack
 
