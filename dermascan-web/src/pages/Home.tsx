@@ -34,7 +34,7 @@ export function Home() {
     <div style={{ maxWidth: 520, margin: '0 auto', padding: '24px 16px' }}>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <div style={{ fontSize: 48, marginBottom: 8 }}>🔬</div>
+        <div style={{ fontSize: 48, marginTop: -8, marginBottom: 20 }}>🔬</div>
         <h1 style={{ color: '#f1f5f9', margin: 0, fontSize: 28 }}>DermaScan</h1>
         <p style={{ color: '#64748b', marginTop: 8, fontSize: 15 }}>
           Análise preliminar de lesões de pele com IA
