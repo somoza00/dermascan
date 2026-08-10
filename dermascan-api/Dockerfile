@@ -17,11 +17,14 @@ RUN groupadd --system app && useradd --system --gid app --no-create-home app
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY app/ ./app/
+# --chown independe da permissão que o arquivo tinha no host: sem isso, um
+# arquivo commitado com permissão restritiva (ex.: 600, dono-only) fica
+# ilegível pro usuário non-root abaixo, e o container não sobe.
+COPY --chown=app:app app/ ./app/
 # Checkpoint treinado (gitignored — não vai pro repositório, mas entra na
 # imagem). Em deploy sem o arquivo local, use MODEL_PATH=<url> (a API
 # baixa sob demanda; ver services/inference.py).
-COPY models/ ./models/
+COPY --chown=app:app models/ ./models/
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

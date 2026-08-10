@@ -1,0 +1,36 @@
+# Sobe API + frontend juntos: `docker compose up --build`.
+#
+# Modelo: a API sobe em modo mock por padrão, porque o checkpoint treinado
+# (dermascan_v1.pt, ~46MB) é gitignored e não vem no clone. Pra usar o
+# modelo real:
+#   - local: coloque o arquivo em dermascan-api/models/dermascan_v1.pt
+#     antes de rodar `docker compose up --build`; ou
+#   - remoto: defina MODEL_PATH=https://.../dermascan_v1.pt (ex.: um
+#     GitHub Release) num arquivo .env ao lado deste compose, ou
+#     `MODEL_PATH=... docker compose up`.
+#
+# CORS: o CORS_ORIGINS padrão da API já libera http://localhost:5173 (ver
+# dermascan-api/app/main.py), que é onde o serviço "web" abaixo fica
+# publicado — não precisa configurar nada extra pra esse cenário local.
+
+services:
+  api:
+    build:
+      context: ./dermascan-api
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_PATH: ${MODEL_PATH:-}
+
+  web:
+    build:
+      context: ./dermascan-web
+      args:
+        # O browser roda fora da rede do Docker e acessa a API pela porta
+        # publicada no host — por isso localhost:8000, não "http://api:8000".
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy

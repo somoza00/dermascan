@@ -42,6 +42,20 @@ O treinamento roda no Google Colab:
 3. Executa célula por célula
 4. O modelo salvo vai pra `dermascan-api/models/`
 
+### Alternativa: Docker
+Sobe API + frontend juntos, sem instalar Python/Node localmente:
+```bash
+docker compose up --build
+```
+- Frontend: http://localhost:5173
+- API: http://localhost:8000
+
+Sem o checkpoint treinado (`dermascan-api/models/dermascan_v1.pt`, gitignored
+por ser ~46MB), a API sobe em modo mock. Pra usar o modelo real, coloque o
+arquivo nesse caminho antes do `docker compose up --build`, ou defina
+`MODEL_PATH=https://.../dermascan_v1.pt` (ex.: um GitHub Release) — a API
+baixa sozinha na primeira predição.
+
 ## API
 
 `POST /predict` — envia imagem, recebe classificação:
