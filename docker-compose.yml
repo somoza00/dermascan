@@ -39,6 +39,9 @@ services:
         # O browser roda fora da rede do Docker e acessa a API pela porta
         # publicada no host — por isso localhost:8000, não "http://api:8000".
         VITE_API_URL: http://localhost:8000
+        # A API pode usar mock neste compose de demonstração, mas a interface
+        # bloqueia resultados aleatórios salvo opt-in explícito.
+        VITE_ALLOW_MOCK_RESULTS: ${VITE_ALLOW_MOCK_RESULTS:-false}
     ports:
       - "5173:80"
     depends_on:

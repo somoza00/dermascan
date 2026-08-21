@@ -3,6 +3,8 @@ Avaliação e exportação do modelo treinado.
 """
 
 import os
+from datetime import datetime, timezone
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -58,13 +60,21 @@ def print_metrics(y_true, y_pred, class_names, critical_class='MEL'):
               f"({'ATENÇÃO: abaixo de 0.90' if recall < 0.90 else 'ok'})")
 
 
-def export_model(model, classes, image_size=IMAGE_SIZE, save_path='models/dermascan_v1.pt'):
+def export_model(
+    model,
+    classes,
+    image_size=IMAGE_SIZE,
+    save_path='models/dermascan_v1.pt',
+    *,
+    metrics: dict[str, Any] | None = None,
+    training_metadata: dict[str, Any] | None = None,
+):
     """Exporta o checkpoint com tudo que a API precisa pra reconstruir o
     pipeline de inferência sem adivinhar nada: pesos, ordem das classes
     (crítico — define qual índice de saída é MEL), resolução de entrada e
-    estatísticas de normalização usadas no treino. Sem isso, quem
-    implementar `RealInferenceService` na API teria que descobrir esse
-    contrato lendo o código de treino.
+    estatísticas de normalização e metadados auditáveis do treino. Sem isso,
+    quem integrar a API teria que adivinhar o contrato e não conseguiria
+    demonstrar de qual experimento vieram as métricas.
     """
     save_dir = os.path.dirname(save_path)
     if save_dir:
@@ -79,12 +89,19 @@ def export_model(model, classes, image_size=IMAGE_SIZE, save_path='models/dermas
             'image_size': image_size,
             'normalize_mean': IMAGENET_MEAN,
             'normalize_std': IMAGENET_STD,
+            'metadata': {
+                'format_version': 2,
+                'exported_at': datetime.now(timezone.utc).isoformat(),
+                'metrics': metrics or {},
+                'training': training_metadata or {},
+            },
         },
         save_path,
     )
     print(f"Modelo exportado: {save_path}")
     print(f"  Classes (ordem = índice de saída): {list(classes)}")
     print(f"  Resolução de entrada: {image_size}x{image_size}")
+    print(f"  Métricas exportadas: {sorted((metrics or {}).keys())}")
 
 
 def export_torchscript(model, example_input, save_path='models/dermascan_v1_ts.pt'):

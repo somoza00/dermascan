@@ -1,13 +1,18 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const REQUEST_TIMEOUT_MS = 30_000;
+// Segurança por padrão: uma API em modo mock nunca deve parecer um produto
+// clínico. Demos precisam habilitar isso deliberadamente no build.
+const ALLOW_MOCK_RESULTS = import.meta.env.VITE_ALLOW_MOCK_RESULTS === 'true';
 
 export type RiskLevel = 'high' | 'medium' | 'low';
+export type InferenceMode = 'real' | 'mock';
 
 export interface PredictionResult {
   risk_level: RiskLevel;
   label: string;
   confidence: number;
   recommendation: string;
+  inference_mode: InferenceMode;
 }
 
 async function parseErrorMessage(response: Response): Promise<string> {
@@ -47,5 +52,12 @@ export async function predictImage(file: File): Promise<PredictionResult> {
     throw new Error(await parseErrorMessage(response));
   }
 
-  return response.json();
+  const result: PredictionResult = await response.json();
+  if (result.inference_mode === 'mock' && !ALLOW_MOCK_RESULTS) {
+    throw new Error(
+      'O servidor está em modo de demonstração e geraria um resultado aleatório. ' +
+      'A exibição foi bloqueada por segurança.'
+    );
+  }
+  return result;
 }

@@ -13,8 +13,10 @@ export function Disclaimer() {
       }}
     >
       ⚠️ <strong>Importante:</strong> Esta ferramenta é apenas para fins educacionais e de
-      suporte à decisão. Não substitui uma consulta médica presencial.
-      Sempre consulte um dermatologista para diagnóstico definitivo.
+      suporte à decisão. A imagem enviada deve ser dermatoscópica e de boa qualidade; fotos
+      comuns, imagens fora do escopo e resultados com baixa confiança podem ser inadequados.
+      Não substitui uma consulta médica presencial. Sempre consulte um dermatologista para
+      diagnóstico definitivo.
     </div>
   );
 }
