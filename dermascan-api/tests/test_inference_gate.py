@@ -92,6 +92,34 @@ def test_ensure_loaded_raises_for_permission_denied(tmp_path, monkeypatch):
         service._ensure_loaded()
 
 
+def test_ensure_loaded_rejects_checkpoint_with_wrong_class_order(tmp_path, monkeypatch):
+    """A ordem das classes define o significado de cada logit do modelo."""
+    checkpoint = {
+        "model_state_dict": {},
+        "classes": ["NV", "MEL"],
+        "num_classes": 2,
+        "image_size": 300,
+        "normalize_mean": [0.485, 0.456, 0.406],
+        "normalize_std": [0.229, 0.224, 0.225],
+    }
+    path = tmp_path / "wrong-classes.pt"
+    monkeypatch.setattr(inference_module.torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    with pytest.raises(RuntimeError, match="classes incompatíveis"):
+        RealInferenceService(model_path=str(path))._ensure_loaded()
+
+
+def test_remote_model_requires_https_and_checksum(monkeypatch):
+    monkeypatch.setenv("MODEL_PATH", "http://example.invalid/model.pt")
+    with pytest.raises(RuntimeError, match="HTTPS"):
+        _build_service()
+
+    monkeypatch.setenv("MODEL_PATH", "https://example.invalid/model.pt")
+    monkeypatch.delenv("MODEL_SHA256", raising=False)
+    with pytest.raises(RuntimeError, match="MODEL_SHA256"):
+        RealInferenceService()._resolve_local_path()
+
+
 # ─── /health reporta o modo de inferência real ───
 
 

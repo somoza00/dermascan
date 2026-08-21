@@ -6,6 +6,8 @@ interface ResultCardProps {
 }
 
 export function ResultCard({ result }: ResultCardProps) {
+  const isMock = result.inference_mode === 'mock';
+
   return (
     <div
       style={{
@@ -16,6 +18,23 @@ export function ResultCard({ result }: ResultCardProps) {
         border: '1px solid #334155',
       }}
     >
+      {isMock && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 16,
+            padding: 12,
+            borderRadius: 8,
+            background: '#451a03',
+            border: '1px solid #f59e0b',
+            color: '#fde68a',
+            lineHeight: 1.45,
+          }}
+        >
+          ⚠️ <strong>Modo de demonstração:</strong> este resultado é simulado e aleatório.
+          Não foi produzido por um modelo de IA e não deve orientar decisões de saúde.
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, color: '#f1f5f9' }}>Resultado da Análise</h3>
         <RiskBadge level={result.risk_level} />
@@ -30,7 +49,7 @@ export function ResultCard({ result }: ResultCardProps) {
         </div>
 
         <div>
-          <span style={{ color: '#64748b', fontSize: 14 }}>Confiança</span>
+          <span style={{ color: '#64748b', fontSize: 14 }}>Confiança do classificador</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
             <div
               style={{
@@ -70,6 +89,11 @@ export function ResultCard({ result }: ResultCardProps) {
           <p style={{ color: '#f1f5f9', margin: '4px 0 0' }}>{result.recommendation}</p>
         </div>
       </div>
+      {!isMock && (
+        <p style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, margin: '16px 0 0' }}>
+          A confiança é uma pontuação técnica do classificador, não uma probabilidade de diagnóstico.
+        </p>
+      )}
     </div>
   );
 }

@@ -25,15 +25,19 @@ mudar — a troca já estava prevista desde o início (Protocol + DI point).
 """
 
 import asyncio
+import hashlib
 import io
 import logging
+import math
 import os
 import random
+import re
 import tempfile
 import threading
 import urllib.request
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import torch
 from PIL import Image
@@ -41,7 +45,7 @@ from torchvision import transforms
 
 from app.schemas.prediction import PredictionResponse
 from app.services.model import DermaScanModel
-from app.services.risk import build_prediction
+from app.services.risk import CLASS_NAMES, build_prediction
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,8 @@ logger = logging.getLogger(__name__)
 # raiz de dermascan-api) e no Docker (WORKDIR /app) resolvem para
 # dermascan-api/models/dermascan_v1.pt. Sobrescreva com MODEL_PATH.
 DEFAULT_MODEL_PATH = "models/dermascan_v1.pt"
+MODEL_SHA256_ENV = "MODEL_SHA256"
+MAX_MODEL_DOWNLOAD_BYTES = 512 * 1024 * 1024  # 512 MB
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -59,6 +65,45 @@ def _env_flag(name: str) -> bool:
     "0") é truthy em Python. Só os valores em `_TRUTHY` (case-insensitive)
     habilitam a flag; ausente, vazio, "false", "0" etc. são falsy."""
     return os.getenv(name, "").strip().lower() in _TRUTHY
+
+
+def _positive_env_int(name: str, default: int) -> int:
+    """Lê um limite operacional sem aceitar valores inválidos ou perigosos."""
+    value = os.getenv(name, str(default)).strip()
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} deve ser um inteiro positivo; recebido {value!r}.") from exc
+    if parsed < 1:
+        raise RuntimeError(f"{name} deve ser maior que zero; recebido {value!r}.")
+    return parsed
+
+
+def _is_remote_model_url(path: str) -> bool:
+    return urlparse(path).scheme == "https"
+
+
+def _is_unsupported_remote_url(path: str) -> bool:
+    return urlparse(path).scheme in {"http", "ftp"}
+
+
+def _expected_model_sha256() -> str:
+    """Exige hash para artefatos remotos, evitando aceitar pesos mutáveis."""
+    checksum = os.getenv(MODEL_SHA256_ENV, "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        raise RuntimeError(
+            f"{MODEL_SHA256_ENV} é obrigatório para MODEL_PATH remoto e deve conter "
+            "um SHA-256 hexadecimal de 64 caracteres."
+        )
+    return checksum
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        while chunk := file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class InferenceService(Protocol):
@@ -112,6 +157,7 @@ class MockInferenceService:
             label=condicao["label"],
             confidence=confidence,
             recommendation=condicao["recom"],
+            inference_mode="mock",
         )
 
 
@@ -150,13 +196,18 @@ class RealInferenceService:
         self._mean: list[float] = [0.485, 0.456, 0.406]
         self._std: list[float] = [0.229, 0.224, 0.225]
         self._load_lock = threading.Lock()
+        # EfficientNet-B3 em CPU é caro. Serializar por padrão evita que um
+        # pico de uploads esgote CPU/RAM e derrube todo o serviço. O limite é
+        # configurável quando o deploy tiver capacidade medida.
+        self._inference_slots = asyncio.Semaphore(
+            _positive_env_int("MAX_CONCURRENT_INFERENCES", 1)
+        )
 
     @staticmethod
     def is_available(model_path: str | None = None) -> bool:
-        """True se o checkpoint está presente (ou é uma URL — nesse caso o
-        download acontece sob demanda na primeira predição)."""
+        """True se o checkpoint está presente ou é uma URL HTTPS válida."""
         path = model_path or os.getenv("MODEL_PATH") or DEFAULT_MODEL_PATH
-        return path.startswith(("http://", "https://")) or Path(path).is_file()
+        return _is_remote_model_url(path) or Path(path).is_file()
 
     def _resolve_local_path(self) -> Path:
         """Se `model_path` é uma URL, baixa o checkpoint para o cache local
@@ -164,18 +215,103 @@ class RealInferenceService:
         repositório (ex.: Railway com MODEL_PATH apontando pra um storage
         público) sem mudar mais nada.
         """
-        if not self.model_path.startswith(("http://", "https://")):
+        if not _is_remote_model_url(self.model_path):
             return Path(self.model_path)
 
-        cache_path = Path(tempfile.gettempdir()) / "dermascan_v1.pt"
+        expected_sha256 = _expected_model_sha256()
+        cache_path = Path(tempfile.gettempdir()) / f"dermascan-{expected_sha256[:12]}.pt"
         if cache_path.is_file() and cache_path.stat().st_size > 0:
-            logger.info("checkpoint já em cache: %s", cache_path)
-            return cache_path
+            if _sha256_file(cache_path) == expected_sha256:
+                logger.info("checkpoint já em cache: %s", cache_path)
+                return cache_path
+            logger.warning("cache de checkpoint com hash inválido; baixando novamente")
+            cache_path.unlink()
 
         logger.info("baixando checkpoint de %s ...", self.model_path)
-        urllib.request.urlretrieve(self.model_path, cache_path)
+        temp_path: Path | None = None
+        try:
+            with urllib.request.urlopen(self.model_path, timeout=30) as response:
+                if urlparse(response.geturl()).scheme != "https":
+                    raise RuntimeError("redirecionamento do checkpoint remoto não usa HTTPS.")
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", delete=False, dir=tempfile.gettempdir(), prefix="dermascan-download-"
+                ) as temp_file:
+                    temp_path = Path(temp_file.name)
+                    digest = hashlib.sha256()
+                    downloaded = 0
+                    while chunk := response.read(1024 * 1024):
+                        downloaded += len(chunk)
+                        if downloaded > MAX_MODEL_DOWNLOAD_BYTES:
+                            raise RuntimeError(
+                                "Checkpoint remoto excede o limite de 512 MB; "
+                                "verifique MODEL_PATH."
+                            )
+                        digest.update(chunk)
+                        temp_file.write(chunk)
+            if digest.hexdigest() != expected_sha256:
+                raise RuntimeError(
+                    "SHA-256 do checkpoint remoto não confere com MODEL_SHA256; "
+                    "o artefato não será usado."
+                )
+            os.replace(temp_path, cache_path)
+            temp_path = None
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"Não foi possível baixar o checkpoint remoto em {self.model_path!r}."
+            ) from exc
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         logger.info("checkpoint baixado: %s (%.1f MB)", cache_path, cache_path.stat().st_size / 1e6)
         return cache_path
+
+    @staticmethod
+    def _validate_checkpoint_contract(checkpoint: Any, local_path: Path) -> None:
+        """Falha no boot quando os metadados não descrevem o modelo suportado.
+
+        Sem esta checagem, uma lista de classes incompatível só falharia na
+        primeira foto enviada — ou, pior, poderia associar índices a rótulos
+        errados. O contrato da API é deliberadamente rígido para este modelo.
+        """
+        if not isinstance(checkpoint, dict):
+            raise RuntimeError(f"Checkpoint {local_path} não contém um dicionário de metadados válido.")
+
+        required = {
+            "model_state_dict", "classes", "num_classes", "image_size", "normalize_mean", "normalize_std"
+        }
+        missing = required - set(checkpoint)
+        if missing:
+            raise RuntimeError(
+                f"Checkpoint {local_path} incompleto — faltam: {sorted(missing)}. "
+                "Re-exporte com export_model() do dermascan-model."
+            )
+
+        classes = checkpoint["classes"]
+        if not isinstance(classes, (list, tuple)) or list(classes) != CLASS_NAMES:
+            raise RuntimeError(
+                f"Checkpoint {local_path} possui classes incompatíveis: {classes!r}. "
+                f"Esperadas: {CLASS_NAMES!r}."
+            )
+        if isinstance(checkpoint["num_classes"], bool) or checkpoint["num_classes"] != len(CLASS_NAMES):
+            raise RuntimeError(
+                f"Checkpoint {local_path} possui num_classes inválido: "
+                f"{checkpoint['num_classes']!r}. Esperado: {len(CLASS_NAMES)}."
+            )
+
+        image_size = checkpoint["image_size"]
+        if isinstance(image_size, bool) or not isinstance(image_size, int) or not 64 <= image_size <= 2048:
+            raise RuntimeError(f"Checkpoint {local_path} possui image_size inválido: {image_size!r}.")
+
+        for field, require_positive in (("normalize_mean", False), ("normalize_std", True)):
+            values = checkpoint[field]
+            if not isinstance(values, (list, tuple)) or len(values) != 3:
+                raise RuntimeError(f"Checkpoint {local_path} possui {field} inválido: {values!r}.")
+            if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in values):
+                raise RuntimeError(f"Checkpoint {local_path} possui {field} não-finito.")
+            if require_positive and any(value <= 0 for value in values):
+                raise RuntimeError(f"Checkpoint {local_path} possui {field} com valor não-positivo.")
 
     def _ensure_loaded(self) -> None:
         """Carrega o checkpoint uma única vez (thread-safe)."""
@@ -222,16 +358,12 @@ class RealInferenceService:
                     "Re-exporte com export_model() do dermascan-model."
                 ) from e
 
-            # Valida o contrato salvo por export_model() — se faltar alguma
-            # chave, o checkpoint é de outra versão do pipeline e o erro é
-            # claro em vez de um KeyError obscuro no meio do forward.
-            required = {"model_state_dict", "classes", "num_classes", "image_size",
-                        "normalize_mean", "normalize_std"}
-            missing = required - set(checkpoint)
-            if missing:
-                raise RuntimeError(
-                    f"Checkpoint {local_path} incompleto — faltam: {sorted(missing)}. "
-                    "Re-exporte com export_model() do dermascan-model."
+            self._validate_checkpoint_contract(checkpoint, local_path)
+
+            metadata = checkpoint.get("metadata")
+            if not metadata:
+                logger.warning(
+                    "checkpoint sem metadata de auditoria; reexporte o modelo para incluir métricas e proveniência"
                 )
 
             model = DermaScanModel(num_classes=checkpoint["num_classes"])
@@ -254,7 +386,8 @@ class RealInferenceService:
         """Inferência roda em thread separada (asyncio.to_thread) — nunca
         bloqueia o event loop do FastAPI, que é compartilhado com outras
         requests."""
-        return await asyncio.to_thread(self._predict_sync, image_bytes)
+        async with self._inference_slots:
+            return await asyncio.to_thread(self._predict_sync, image_bytes)
 
     def _predict_sync(self, image_bytes: bytes) -> PredictionResponse:
         self._ensure_loaded()
@@ -276,7 +409,7 @@ class RealInferenceService:
             "predição real: top=%s risk=%s confidence=%.3f",
             prediction["label"], prediction["risk_level"], prediction["confidence"],
         )
-        return PredictionResponse(**prediction)
+        return PredictionResponse(**prediction, inference_mode="real")
 
 
 # Instância única (singleton) — resolvida na primeira chamada.
@@ -294,6 +427,8 @@ def _build_service() -> InferenceService:
     `lifespan` do FastAPI — a API se recusa a subir servindo predições
     sintéticas por um MODEL_PATH mal configurado num deploy real."""
     path = os.getenv("MODEL_PATH") or DEFAULT_MODEL_PATH
+    if _is_unsupported_remote_url(path):
+        raise RuntimeError("MODEL_PATH remoto deve usar HTTPS; HTTP e FTP não são aceitos.")
     if RealInferenceService.is_available(path):
         logger.info("RealInferenceService ativo (checkpoint: %s)", path)
         return RealInferenceService(path)

@@ -14,6 +14,8 @@ COPY . .
 # localhost:8000 no host. Sobrescreva com --build-arg pra outros cenários.
 ARG VITE_API_URL=http://localhost:8000
 ENV VITE_API_URL=${VITE_API_URL}
+ARG VITE_ALLOW_MOCK_RESULTS=false
+ENV VITE_ALLOW_MOCK_RESULTS=${VITE_ALLOW_MOCK_RESULTS}
 RUN npm run build
 
 
