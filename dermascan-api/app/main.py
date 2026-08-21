@@ -58,4 +58,10 @@ app.include_router(predict_router)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": app.version}
+    # Reporta o modo de inferência de verdade em vez de um "ok" estático:
+    # ALLOW_MOCK_INFERENCE permite subir em modo mock intencionalmente (dev/
+    # CI/demo), e sem isso no corpo da resposta não haveria como distinguir
+    # de fora se a API está servindo o modelo treinado ou dados sintéticos.
+    service = get_inference_service()
+    mode = "real" if isinstance(service, RealInferenceService) else "mock"
+    return {"status": "ok", "version": app.version, "inference_mode": mode}

@@ -1,13 +1,22 @@
 # Sobe API + frontend juntos: `docker compose up --build`.
 #
-# Modelo: a API sobe em modo mock por padrão, porque o checkpoint treinado
-# (dermascan_v1.pt, ~46MB) é gitignored e não vem no clone. Pra usar o
+# Modelo: a API recusa subir servindo predições sintéticas sem sinalização
+# explícita (ver ALLOW_MOCK_INFERENCE em dermascan-api/app/services/
+# inference.py) — mas esse compose é o caminho de "baixei o projeto pra
+# testar", então ALLOW_MOCK_INFERENCE default true aqui embaixo permite
+# subir em modo mock sem o checkpoint (~46MB, gitignored). Pra usar o
 # modelo real:
 #   - local: coloque o arquivo em dermascan-api/models/dermascan_v1.pt
 #     antes de rodar `docker compose up --build`; ou
 #   - remoto: defina MODEL_PATH=https://.../dermascan_v1.pt (ex.: um
 #     GitHub Release) num arquivo .env ao lado deste compose, ou
 #     `MODEL_PATH=... docker compose up`.
+# Em qualquer um dos dois casos o checkpoint tem prioridade sobre o mock,
+# então ALLOW_MOCK_INFERENCE=true não impede o modelo real de ser usado
+# quando ele está disponível. Fora deste compose (ex.: Railway), NÃO
+# defina ALLOW_MOCK_INFERENCE — o default (false) é o que garante que um
+# MODEL_PATH mal configurado em produção derruba o deploy em vez de
+# servir predições sintéticas silenciosamente.
 #
 # CORS: o CORS_ORIGINS padrão da API já libera http://localhost:5173 (ver
 # dermascan-api/app/main.py), que é onde o serviço "web" abaixo fica
@@ -21,6 +30,7 @@ services:
       - "8000:8000"
     environment:
       MODEL_PATH: ${MODEL_PATH:-}
+      ALLOW_MOCK_INFERENCE: ${ALLOW_MOCK_INFERENCE:-true}
 
   web:
     build:
