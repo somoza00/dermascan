@@ -26,6 +26,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Documentação interativa: http://localhost:8000/docs
 
+Sem o checkpoint treinado (`dermascan-api/models/dermascan_v1.pt`), a API
+recusa subir — falha no startup em vez de servir predições sintéticas
+silenciosamente. Pra rodar sem o modelo (dev/demo), defina
+`ALLOW_MOCK_INFERENCE=true` antes do `uvicorn` (ver `.env_example`).
+
 ### 2. Frontend
 ```bash
 cd dermascan-web
@@ -51,10 +56,14 @@ docker compose up --build
 - API: http://localhost:8000
 
 Sem o checkpoint treinado (`dermascan-api/models/dermascan_v1.pt`, gitignored
-por ser ~46MB), a API sobe em modo mock. Pra usar o modelo real, coloque o
-arquivo nesse caminho antes do `docker compose up --build`, ou defina
-`MODEL_PATH=https://.../dermascan_v1.pt` (ex.: um GitHub Release) — a API
-baixa sozinha na primeira predição.
+por ser ~46MB), a API sobe em modo mock — o `docker-compose.yml` já define
+`ALLOW_MOCK_INFERENCE=true` por padrão pra esse cenário de "testar sem o
+modelo". Pra usar o modelo real, coloque o arquivo nesse caminho antes do
+`docker compose up --build`, ou defina `MODEL_PATH=https://.../dermascan_v1.pt`
+(ex.: um GitHub Release) — a API baixa sozinha no startup. Fora do Docker
+Compose (ex.: Railway), não defina `ALLOW_MOCK_INFERENCE`: sem checkpoint
+disponível, a API deve falhar no startup em vez de mascarar um `MODEL_PATH`
+mal configurado com predições sintéticas.
 
 ## API
 
@@ -66,8 +75,9 @@ baixa sozinha na primeira predição.
 
 O serviço escolhe sozinho entre modelo real e mock: se
 `dermascan-api/models/dermascan_v1.pt` existir (ou a env `MODEL_PATH`
-apontar pra um arquivo/URL), roda o EfficientNet-B3 treinado; senão, cai
-pro mock com um warning no log. Detalhes em
+apontar pra um arquivo/URL), roda o EfficientNet-B3 treinado. Sem
+checkpoint disponível, a API só cai pro mock se `ALLOW_MOCK_INFERENCE=true`
+estiver definido explicitamente — senão recusa subir. Detalhes em
 `dermascan-api/app/services/inference.py`.
 
 ## Stack

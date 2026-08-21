@@ -13,9 +13,15 @@ precisa seguir. Existem duas implementações:
   não hardcoded) e deriva risco via `risk.py::build_prediction`.
 
 `get_inference_service()` escolhe automaticamente: se o checkpoint existe
-localmente (ou `MODEL_PATH` aponta pra ele / uma URL http(s)), usa o real;
-senão, cai pro mock com warning. Nenhuma rota precisa mudar — a troca já
-estava prevista desde o início (Protocol + DI point).
+localmente (ou `MODEL_PATH` aponta pra ele / uma URL http(s)), usa o real.
+Se não existe, a API **recusa subir** — levanta `RuntimeError` no startup —
+a menos que `ALLOW_MOCK_INFERENCE=true` esteja definido explicitamente; só
+nesse caso cai pro mock, com warning. Isso existe pra nunca servir
+predições sintéticas silenciosamente num deploy real (Railway etc.) por
+`MODEL_PATH` mal configurado — só em dev/CI/demo sem o modelo treinado é
+que faz sentido permitir o mock, e isso tem que ser uma escolha explícita
+de quem sobe a API, não o comportamento padrão. Nenhuma rota precisa
+mudar — a troca já estava prevista desde o início (Protocol + DI point).
 """
 
 import asyncio
@@ -43,6 +49,16 @@ logger = logging.getLogger(__name__)
 # raiz de dermascan-api) e no Docker (WORKDIR /app) resolvem para
 # dermascan-api/models/dermascan_v1.pt. Sobrescreva com MODEL_PATH.
 DEFAULT_MODEL_PATH = "models/dermascan_v1.pt"
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _env_flag(name: str) -> bool:
+    """Parsing explícito de bool a partir de env var — `bool(os.getenv(...))`
+    é um bug clássico aqui: qualquer string não-vazia (incluindo "false" e
+    "0") é truthy em Python. Só os valores em `_TRUTHY` (case-insensitive)
+    habilitam a flag; ausente, vazio, "false", "0" etc. são falsy."""
+    return os.getenv(name, "").strip().lower() in _TRUTHY
 
 
 class InferenceService(Protocol):
@@ -177,7 +193,34 @@ class RealInferenceService:
             # (`MODEL_PATH`) — sem essa flag, um checkpoint malicioso
             # servido por um host comprometido/MITM executaria código
             # arbitrário no load, não só pesos errados.
-            checkpoint = torch.load(local_path, map_location="cpu", weights_only=True)
+            #
+            # Cada modo de falha vira um RuntimeError com mensagem própria,
+            # em vez de deixar a exceção nativa (FileNotFoundError cru,
+            # PermissionError cru, erro de unpickling ilegível) subir direto
+            # — isso é o que aparece no log de startup quando o deploy
+            # quebra, e "checkpoint corrompido" vs. "sem permissão de
+            # leitura" vs. "MODEL_PATH aponta pro lugar errado" pedem ações
+            # de correção completamente diferentes.
+            try:
+                checkpoint = torch.load(local_path, map_location="cpu", weights_only=True)
+            except FileNotFoundError as e:
+                raise RuntimeError(
+                    f"Checkpoint não encontrado em {local_path} — MODEL_PATH aponta pra "
+                    "um caminho que não existe. Verifique o valor de MODEL_PATH ou "
+                    "coloque o .pt em dermascan-api/models/."
+                ) from e
+            except PermissionError as e:
+                raise RuntimeError(
+                    f"Sem permissão de leitura em {local_path}. Verifique as permissões "
+                    "do arquivo (em Docker, confira também o dono do arquivo vs. o "
+                    "usuário non-root do container — ver COPY --chown no Dockerfile)."
+                ) from e
+            except Exception as e:
+                raise RuntimeError(
+                    f"Checkpoint {local_path} não pôde ser desserializado — arquivo "
+                    "corrompido, truncado, ou incompatível com weights_only=True. "
+                    "Re-exporte com export_model() do dermascan-model."
+                ) from e
 
             # Valida o contrato salvo por export_model() — se faltar alguma
             # chave, o checkpoint é de outra versão do pipeline e o erro é
@@ -243,20 +286,34 @@ _service_lock = threading.Lock()
 
 def _build_service() -> InferenceService:
     """Decide qual implementação usar. Se o checkpoint estiver disponível
-    (arquivo local ou MODEL_PATH/URL), usa o real; senão, mock com warning
-    bem visível — a API continua respondendo em qualquer ambiente, mas deixa
-    claro que a resposta não é de um modelo treinado."""
+    (arquivo local ou MODEL_PATH/URL), usa o real.
+
+    Se não estiver, a API só cai pro mock quando `ALLOW_MOCK_INFERENCE=true`
+    é definido explicitamente (uso legítimo em dev/CI/demo sem o modelo
+    treinado); caso contrário levanta `RuntimeError`, propagada pelo
+    `lifespan` do FastAPI — a API se recusa a subir servindo predições
+    sintéticas por um MODEL_PATH mal configurado num deploy real."""
     path = os.getenv("MODEL_PATH") or DEFAULT_MODEL_PATH
     if RealInferenceService.is_available(path):
         logger.info("RealInferenceService ativo (checkpoint: %s)", path)
         return RealInferenceService(path)
 
-    logger.warning(
-        "Checkpoint do modelo não encontrado em %r — usando MockInferenceService. "
-        "Coloque o .pt em dermascan-api/models/ ou defina MODEL_PATH.",
-        path,
+    if _env_flag("ALLOW_MOCK_INFERENCE"):
+        logger.warning(
+            "Checkpoint do modelo não encontrado em %r — ALLOW_MOCK_INFERENCE=true, "
+            "subindo com MockInferenceService. NÃO faça isso em produção: as respostas "
+            "são sintéticas, não vêm de um modelo treinado.",
+            path,
+        )
+        return MockInferenceService()
+
+    raise RuntimeError(
+        f"Checkpoint do modelo não encontrado em {path!r} e ALLOW_MOCK_INFERENCE não "
+        "está habilitado. A API recusa subir servindo predições sintéticas sem "
+        "sinalização explícita. Coloque o .pt em dermascan-api/models/, corrija "
+        "MODEL_PATH, ou — só para dev/CI/demo sem o modelo treinado — defina "
+        "ALLOW_MOCK_INFERENCE=true."
     )
-    return MockInferenceService()
 
 
 def get_inference_service() -> InferenceService:
