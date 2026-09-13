@@ -4,6 +4,8 @@ export interface PredictResponse {
   label: string;
   confidence: number;       // 0–1
   inference_mode: 'real' | 'mock';
+  risk_level: string;       // "high" | "medium" | "low" (contrato da API)
+  recommendation: string;
   probabilities?: Record<string, number>;
 }
 
