@@ -4,6 +4,16 @@ import styles from './Uploader.module.css';
 
 type Status = 'idle' | 'preview' | 'loading' | 'done' | 'error';
 
+// Mapeia risk_level para a cor do diagnóstico. A API devolve os valores do
+// enum `"high" | "medium" | "low"` (ver app/schemas/prediction.py); aceita
+// também os rótulos em pt ("alto"/"moderado"/"baixo") como reforço defensivo.
+function riskColor(riskLevel: string): string {
+  const level = riskLevel.toLowerCase();
+  if (level.includes('high') || level.includes('alto')) return 'var(--risk-high)';
+  if (level.includes('medium') || level.includes('moderado')) return 'var(--risk-med)';
+  return 'var(--risk-low)';
+}
+
 export function Uploader() {
   const inputRef              = useRef<HTMLInputElement>(null);
   const [status, setStatus]   = useState<Status>('idle');
@@ -93,7 +103,7 @@ export function Uploader() {
           {status === 'done' && result && (
             <div className={styles.resultCard}>
               <p className={styles.resultLabel}>Classificação preliminar</p>
-              <p className={styles.diagnosis}>{result.label}</p>
+              <p className={styles.diagnosis} style={{ color: riskColor(result.risk_level) }}>{result.label}</p>
               <div className={styles.confWrap}>
                 <div className={styles.confHeader}>
                   <span>Confiança do modelo</span>
