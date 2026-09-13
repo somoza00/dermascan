@@ -1,0 +1,5 @@
+.banner { background: rgba(245,158,11,0.06); border-top: 1px solid rgba(245,158,11,0.15); border-bottom: 1px solid rgba(245,158,11,0.15); padding: 2rem 1.5rem; }
+.inner { max-width: 780px; margin: 0 auto; display: flex; gap: 1rem; align-items: flex-start; }
+.icon { font-size: 1.25rem; flex-shrink: 0; margin-top: 0.1rem; }
+.inner p { font-size: 0.85rem; color: #C9A84C; line-height: 1.7; }
+.inner strong { color: #F59E0B; }

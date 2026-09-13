@@ -1,0 +1,33 @@
+.nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: rgba(7,17,31,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0,191,165,0.1);
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  color: var(--white);
+  text-decoration: none;
+}
+.logo svg { color: var(--teal); }
+.cta {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--teal);
+  text-decoration: none;
+  border: 1px solid var(--teal-border);
+  padding: 0.45rem 1.1rem;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+.cta:hover { background: var(--teal-dim); }
