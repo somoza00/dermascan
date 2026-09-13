@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -6,13 +7,93 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes.predict import router as predict_router
+from app.routes import predict as predict_route
 from app.services.inference import RealInferenceService, get_inference_service
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "info").upper(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+
+
+class _PayloadTooLarge(Exception):
+    """Sinal interno: o corpo do request ultrapassou o limite durante o stream."""
+
+
+# Buffer reservado para o envelope multipart (boundaries + headers de cada
+# parte) além do limite de arquivo imposto em routes/predict.MAX_UPLOAD_SIZE.
+# Garante que qualquer imagem que passe o limite de arquivo da rota também
+# caiba no corpo (que inclui o overhead do multipart), sem abrir espaço pra
+# um spool descontrolado no disco do servidor.
+_UPLOAD_ENVELOPE_BUFFER = 1_024 * 1024  # 1MB
+
+
+def _upload_body_limit() -> int:
+    """Limite do corpo do request: arquivo + envelope multipart."""
+    return predict_route.MAX_UPLOAD_SIZE + _UPLOAD_ENVELOPE_BUFFER
+
+
+class MaxUploadSizeMiddleware:
+    """Rejeita uploads acima do limite ANTES do parser multipart.
+
+    O parser do Starlette já spoola o corpo do multipart num arquivo
+    temporário (que rola pra disco acima de ~500KB) antes de a rota ler o
+    UploadFile — então o limite de 10MB em chunks em routes/predict.py
+    protege a RAM, mas não o disco. Este middleware corta no nível do
+    protocolo:
+    (1) responde 413 de imediato quando o header Content-Length excede o
+    limite, sem parse/spool nenhum;
+    (2) como defesa contra corpos chunked sem Content-Length, limita os
+    bytes recebidos durante o stream, contendo o spool do disco no limite.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def _send_413(self, send):
+        body = json.dumps({"detail": "Imagem muito grande. Máx 10MB."}).encode()
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        limit = _upload_body_limit()
+        headers = dict(scope.get("headers") or [])
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                declared = 0
+            if declared > limit:
+                await self._send_413(send)
+                return
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise _PayloadTooLarge()
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _PayloadTooLarge:
+            await self._send_413(send)
 
 
 @asynccontextmanager
@@ -52,8 +133,9 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.add_middleware(MaxUploadSizeMiddleware)
 
-app.include_router(predict_router)
+app.include_router(predict_route.router)
 
 
 @app.get("/health")

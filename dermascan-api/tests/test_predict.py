@@ -122,3 +122,79 @@ def test_health_check(client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_middleware_rejects_oversized_content_length():
+    """Content-Length acima do limite -> 413 sem nunca chamar a app downstream."""
+    import asyncio
+
+    from app.main import MaxUploadSizeMiddleware
+    from app.routes import predict as predict_route
+
+    limit = predict_route.MAX_UPLOAD_SIZE + (1024 * 1024)
+    downstream_called: list[str] = []
+
+    async def dummy_downstream(scope, receive, send):
+        downstream_called.append(scope["path"])
+
+    middleware = MaxUploadSizeMiddleware(dummy_downstream)
+    messages: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/predict",
+        "headers": [(b"content-length", str(limit + 1).encode())],
+    }
+    asyncio.run(middleware(scope, receive, send))
+
+    assert downstream_called == []
+    assert messages[0]["type"] == "http.response.start"
+    assert messages[0]["status"] == 413
+
+
+def test_middleware_caps_body_without_content_length():
+    """Corpo chunked (sem Content-Length) ficando maior que o limite -> 413.
+
+    O limite em chunks em predict.py protege a RAM, mas é o parser multipart
+    que spoola o corpo num arquivo temporário antes da rota. Este teste
+    garante que o middleware corta o corpo recebido durante o stream.
+    """
+    import asyncio
+
+    from app.main import MaxUploadSizeMiddleware
+    from app.routes import predict as predict_route
+
+    limit = predict_route.MAX_UPLOAD_SIZE + (1024 * 1024)
+
+    async def dummy_consumer(scope, receive, send):
+        # Consome o corpo como o parser multipart faria, até o fim da stream.
+        while True:
+            message = await receive()
+            if message["type"] != "http.request" or not message.get("more_body"):
+                break
+
+    middleware = MaxUploadSizeMiddleware(dummy_consumer)
+    chunks = iter([
+        {"type": "http.request", "body": b"x" * (limit + 8), "more_body": True},
+        {"type": "http.request", "body": b"", "more_body": False},
+    ])
+    messages: list[dict] = []
+
+    async def receive():
+        return next(chunks)
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {"type": "http", "method": "POST", "path": "/predict", "headers": []}
+    asyncio.run(middleware(scope, receive, send))
+
+    starts = [m for m in messages if m["type"] == "http.response.start"]
+    assert starts and starts[0]["status"] == 413
