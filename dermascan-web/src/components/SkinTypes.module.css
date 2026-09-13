@@ -1,0 +1,20 @@
+.section { padding: 5rem 1.5rem; }
+.container { max-width: 1080px; margin: 0 auto; }
+.label { font-size: 0.75rem; font-weight: 500; letter-spacing: 0.1em; color: var(--teal); text-transform: uppercase; margin-bottom: 0.75rem; }
+.title { font-family: var(--serif); font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.2; margin-bottom: 1rem; }
+.sub { color: var(--muted); max-width: 580px; margin-bottom: 3rem; line-height: 1.75; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+.card { background: var(--bg-card); border-radius: 12px; border-left: 3px solid transparent; padding: 1.5rem; transition: transform 0.18s; }
+.card:hover { transform: translateY(-3px); }
+.low  { border-color: var(--risk-low); }
+.med  { border-color: var(--risk-med); }
+.high { border-color: var(--risk-high); }
+.icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+.name { font-size: 1rem; font-weight: 600; }
+.badge { font-size: 0.68rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; flex-shrink: 0; }
+.low  .badge { background: rgba(0,191,165,0.15); color: var(--risk-low); }
+.med  .badge { background: rgba(245,158,11,0.15); color: var(--risk-med); }
+.high .badge { background: rgba(239,68,68,0.15);  color: var(--risk-high); }
+.desc { font-size: 0.85rem; color: var(--muted); line-height: 1.65; }
+@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }

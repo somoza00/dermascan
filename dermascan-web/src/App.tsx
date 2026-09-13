@@ -1,15 +1,23 @@
-import { Home } from './pages/Home'
-import { ErrorBoundary } from './components/ErrorBoundary'
-import './App.css'
+import { Navbar }     from './components/Navbar';
+import { Hero }       from './components/Hero';
+import { HowItWorks } from './components/HowItWorks';
+import { SkinTypes }  from './components/SkinTypes';
+import { Disclaimer } from './components/Disclaimer';
+import { Uploader }   from './components/Uploader';
+import { Footer }     from './components/Footer';
 
-function App() {
+export default function App() {
   return (
-    <div className="app">
-      <ErrorBoundary>
-        <Home />
-      </ErrorBoundary>
-    </div>
-  )
+    <>
+      <Navbar />
+      <main>
+        <Hero />
+        <HowItWorks />
+        <SkinTypes />
+        <Disclaimer />
+        <Uploader />
+      </main>
+      <Footer />
+    </>
+  );
 }
-
-export default App

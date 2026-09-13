@@ -1,0 +1,10 @@
+.section { background: var(--bg-section); padding: 5rem 1.5rem; }
+.container { max-width: 1080px; margin: 0 auto; }
+.label { font-size: 0.75rem; font-weight: 500; letter-spacing: 0.1em; color: var(--teal); text-transform: uppercase; margin-bottom: 0.75rem; }
+.title { font-family: var(--serif); font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.2; margin-bottom: 1rem; }
+.sub { color: var(--muted); max-width: 580px; margin-bottom: 3rem; line-height: 1.75; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; }
+.card { background: var(--bg-card); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.75rem; }
+.stepNum { font-family: var(--serif); font-size: 2.5rem; color: var(--teal-border); line-height: 1; margin-bottom: 1rem; }
+.stepTitle { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+.stepDesc { font-size: 0.88rem; color: var(--muted); line-height: 1.65; }
